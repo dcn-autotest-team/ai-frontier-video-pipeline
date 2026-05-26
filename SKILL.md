@@ -147,6 +147,42 @@ output/
 
 完整工作流详细文档，包含环境依赖、目录结构、关键技术参数和踩坑记录。
 
+## 异常处理 & 降级策略
+
+### SenseAudio API 失败
+
+| 场景 | 现象 | 降级方案 |
+|---|---|---|
+| TTS 失败 | `/v1/t2a_v2` 返回非200 | 提示用户手动提供 MP3，或用系统 `edge-tts` 替代 |
+| BGM 生成失败 | lyrics/song API 报错 | 使用无 BGM 版本，或提示用户手动提供 MP3 |
+| ASR 失败 | `/v1/audio/transcriptions` 报错 | 手动编写 SRT 字幕，或跳过字幕 |
+
+### FFmpeg 相关问题
+
+| 场景 | 现象 | 处理 |
+|---|---|---|
+| FFmpeg 找不到 | `shutil.which("ffmpeg")` 返回 None | 提示用户安装 FFmpeg 或用 `--ffmpeg` 指定路径 |
+| zoompan 滤镜失败 | Ken Burns 渲染报错 | 脚本自动降级到简单推近 → 静态缩放 |
+| xfade 滤镜失败 | 转场合成报错 | 脚本自动降级到 fade → concat 拼接 |
+| 字幕烧录失败 | subtitles 滤镜报错 | 脚本自动跳过字幕，输出无字幕版 |
+
+### 依赖缺失
+
+| 依赖 | 检测方式 | 降级/提示 |
+|---|---|---|
+| Python Pillow | `import PIL` 失败 | 提示 `pip install Pillow` |
+| Node.js | `node --version` 失败 | 提示安装 Node.js 22+ |
+| follow-builders | skill 不存在 | 提示先安装 follow-builders skill |
+
+### 检查点设计
+
+以下关键决策点建议与用户确认后再继续：
+
+1. **Phase 0 选题后**：展示 Builder 动态摘要，确认选题方向
+2. **Phase 2 脚本完成后**：展示脚本+分镜 JSON，确认后再生成素材
+3. **Phase 3 素材生成后**：展示分镜图片，确认后再渲染视频
+4. **Phase 4 渲染完成后**：展示视频文件路径，确认交付完成
+
 ## 资源文件
 
 ### `assets/`

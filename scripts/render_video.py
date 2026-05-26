@@ -11,9 +11,7 @@ Ken Burns 运镜 + xfade 转场 + 暗角调色 + 字幕烧录 + 音频混流
 import subprocess, re, shutil, math, argparse, sys
 from pathlib import Path
 
-# ─── 固定配置 ─────────────────────────────────────────
-import shutil
-FFMPEG = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe") or r"ffmpeg.exe"
+# ─── 默认配置 ─────────────────────────────────────────
 W, H = 1080, 1920
 FPS = 30
 XFADE_DUR = 0.7
@@ -68,7 +66,9 @@ TRANSITIONS = ["fadeblack", "smoothright", "fade", "dissolve", "fadeblack"]
 # 渲染主流程
 # ═══════════════════════════════════════════════════════
 
-def render_video(slides_dir, voice_path, bgm_path, srt_path, output_path, ep_num):
+def render_video(slides_dir, voice_path, bgm_path, srt_path, output_path, ep_num, ffmpeg_exe="ffmpeg"):
+    global FFMPEG
+    FFMPEG = ffmpeg_exe
     slides_dir = Path(slides_dir)
     voice_path = Path(voice_path)
     bgm_path = Path(bgm_path) if bgm_path else None
@@ -361,14 +361,17 @@ def main():
     parser.add_argument("--srt", default=None, help="SRT字幕文件路径（可选）")
     parser.add_argument("--ep", type=int, default=1, help="集号")
     parser.add_argument("--output", default=None, help="输出MP4文件路径（默认: output/epXX.mp4）")
+    parser.add_argument("--ffmpeg", default=None, help="FFmpeg可执行文件路径（默认: 系统PATH中查找）")
     args = parser.parse_args()
+
+    ffmpeg_exe = args.ffmpeg if args.ffmpeg else (shutil.which("ffmpeg") or shutil.which("ffmpeg.exe") or "ffmpeg.exe")
 
     if args.output is None:
         output_dir = Path("output")
         output_dir.mkdir(parents=True, exist_ok=True)
         args.output = str(output_dir / f"ep{args.ep:02d}.mp4")
 
-    render_video(args.slides_dir, args.voice, args.bgm, args.srt, args.output, args.ep)
+    render_video(args.slides_dir, args.voice, args.bgm, args.srt, args.output, args.ep, ffmpeg_exe)
 
 
 if __name__ == "__main__":
