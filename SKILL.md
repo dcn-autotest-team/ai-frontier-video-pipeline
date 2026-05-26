@@ -769,6 +769,796 @@ tree output/ep01/  # Windows 用 `dir /s output/ep01/`
 
 ---
 
+### 边界条件测试（测试用时 10 分钟）
+
+#### 测试1：网络超时
+
+**测试步骤**：
+```bash
+# 模拟网络超时（用代理或断开网络）
+curl -m 5 https://api.senseaudio.com/v1/t2a_v2  # 应该超时
+
+# 检查脚本是否能正确处理超时
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01_timeout.mp4
+```
+
+**预期结果**：
+- [ ] 脚本捕获超时异常，不崩溃
+- [ ] 输出友好错误提示（"网络超时，请检查网络连接"）
+- [ ] 重试3次后仍然失败，则提示用户手动提供文件
+
+**失败处理**：
+- 如果脚本崩溃 → 加 `try...except requests.exceptions.Timeout` 捕获超时异常
+- 如果错误提示不友好 → 改进错误提示文案
+
+---
+
+#### 测试2：API 限流（429 错误）
+
+**测试步骤**：
+```bash
+# 快速连续调用 API（模拟限流）
+for i in {1..10}; do
+  curl -X POST "https://api.senseaudio.com/v1/t2a_v2" \
+    -H "Authorization: Bearer $SENSEAUDIO_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"text": "测试", "voice_id": "male_0028_a"}' &
+done
+wait
+
+# 检查是否有 429 错误
+grep "429" output/api_log.txt  # 应该有 429 错误记录
+```
+
+**预期结果**：
+- [ ] 脚本检测到 429 错误
+- [ ] 自动等待 60 秒后重试
+- [ ] 重试3次后仍失败，则提示用户"API 限流，请稍后再试"
+
+**失败处理**：
+- 如果脚本不检测 429 错误 → 加 `if response.status_code == 429` 判断
+- 如果不自动等待 → 加 `time.sleep(60)` 等待逻辑
+
+---
+
+#### 测试3：磁盘空间不足
+
+**测试步骤**：
+```bash
+# 检查磁盘空间
+df -h output/  # Linux/macOS
+# 或
+dir output\  # Windows
+
+# 模拟磁盘空间不足（用虚拟磁盘或填充大文件）
+dd if=/dev/zero of=output/dummy.bin bs=1G count=10  # Linux/macOS
+# Windows 用 fsutil
+
+# 运行渲染脚本
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01_lowdisk.mp4
+```
+
+**预期结果**：
+- [ ] 脚本检测到磁盘空间不足（< 500MB）
+- [ ] 输出友好错误提示（"磁盘空间不足，需要至少 500MB"）
+- [ ] 不继续执行渲染，避免写入失败
+
+**失败处理**：
+- 如果脚本不检测磁盘空间 → 加 `shutil.disk_usage()` 检测逻辑
+- 如果错误提示不友好 → 改进错误提示文案
+
+---
+
+#### 测试4：并发冲突（同一 EP 正在渲染）
+
+**测试步骤**：
+```bash
+# 终端1：开始渲染
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01_concurrent.mp4 &
+
+# 终端2：立即再次运行（模拟并发）
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01_concurrent2.mp4
+```
+
+**预期结果**：
+- [ ] 第二个进程检测到 `.lock` 文件存在
+- [ ] 输出友好提示（"EP01 正在渲染，请等待或换 EP 号"）
+- [ ] 第二个进程自动退出，不覆盖第一个进程的输出
+
+**失败处理**：
+- 如果脚本不创建 `.lock` 文件 → 加 `with open("output/.lock", "w") as f` 逻辑
+- 如果第二个进程不检测 `.lock` 文件 → 加 `if os.path.exists("output/.lock")` 判断
+
+---
+
+### 异常场景测试（测试用时 10 分钟）
+
+#### 测试5：图片分辨率异常
+
+**测试步骤**：
+```bash
+# 创建分辨率异常的图片（非 1080x1920）
+convert -size 1920x1080 xc:blue slides/slide_01_wrong.png  # 横屏，应该是竖屏
+convert -size 500x500 xc:red slides/slide_01_small.png      # 太小
+
+# 运行渲染脚本
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01_wrongres.mp4
+```
+
+**预期结果**：
+- [ ] 脚本检测到图片分辨率异常（非 1080x1920）
+- [ ] 自动 padding/center 到标准尺寸
+- [ ] 输出警告日志（"图片 slide_01_wrong.png 分辨率异常，已自动调整"）
+
+**失败处理**：
+- 如果脚本不检测分辨率 → 加 `Image.open().size` 检测逻辑
+- 如果不自动调整 → 加 `resize()` 或 `paste()` 调整逻辑
+
+---
+
+#### 测试6：音频采样率异常
+
+**测试步骤**：
+```bash
+# 创建采样率异常的音频（非 16kHz/单声道）
+ffmpeg -i output/voice.mp3 -ar 44100 -ac 2 output/voice_wrong.wav  # 44.1kHz，立体声
+
+# 运行 ASR API
+curl -X POST "https://api.senseaudio.com/v1/audio/transcriptions" \
+  -H "Authorization: Bearer $SENSEAUDIO_API_KEY" \
+  -F "file=@output/voice_wrong.wav" \
+  -F "language=zh"
+```
+
+**预期结果**：
+- [ ] ASR API 返回错误或转写质量差
+- [ ] 脚本在调用 ASR 前强制重采样到 16kHz/单声道
+- [ ] 输出警告日志（"音频采样率异常，已自动重采样"）
+
+**失败处理**：
+- 如果脚本不重采样 → 加 `ffmpeg -i input.wav -ar 16000 -ac 1 output.wav` 逻辑
+- 如果 ASR 报错不友好 → 改进错误提示文案
+
+---
+
+#### 测试7：字幕编码错误
+
+**测试步骤**：
+```bash
+# 创建编码错误的字幕文件（非 UTF-8）
+echo "1\n00:00:01,000 --> 00:00:04,000\n测试\n" | iconv -t GBK > output/subtitle_gbk.srt
+
+# 运行渲染脚本
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --srt output/subtitle_gbk.srt --ep 01 --output output/ep01_wrongsrt.mp4
+```
+
+**预期结果**：
+- [ ] 脚本检测到字幕编码错误（非 UTF-8）
+- [ ] 自动转换编码到 UTF-8
+- [ ] 输出警告日志（"字幕文件编码错误，已自动转换"）
+
+**失败处理**：
+- 如果脚本不检测编码 → 加 `chardet` 库检测编码
+- 如果不自动转换 → 加 `iconv -f GBK -t UTF-8` 转换逻辑
+
+---
+
+### 性能基准测试（测试用时 15 分钟）
+
+#### 测试8：渲染速度基准
+
+**测试步骤**：
+```bash
+# 记录开始时间
+START=$(date +%s)
+
+# 运行渲染脚本
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01_benchmark.mp4
+
+# 记录结束时间
+END=$(date +%s)
+ELAPSED=$((END - START))
+echo "渲染耗时: $ELAPSED 秒"
+```
+
+**预期结果**：
+- [ ] 渲染耗时 < 5 分钟（取决于硬件）
+- [ ] 输出性能日志（`output/render_benchmark.log`）
+- [ ] 日志包含每个步骤的耗时（分镜处理、转场、调色、字幕、音频混流）
+
+**失败处理**：
+- 如果渲染耗时过长 → 优化 FFmpeg 参数（减少滤镜复杂度、使用 GPU 加速）
+- 如果不输出性能日志 → 加 `time.time()` 记录耗时
+
+---
+
+#### 测试9：文件大小基准
+
+**测试步骤**：
+```bash
+# 渲染视频
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01_benchmark.mp4
+
+# 检查文件大小
+ls -lh output/ep01_benchmark.mp4
+```
+
+**预期结果**：
+- [ ] 视频文件大小 < 100MB（60 秒，1080x1920，H.264编码）
+- [ ] 如果文件过大 → 自动降低视频码率（从 5M 降到 3M）
+- [ ] 输出文件大小日志（`output/file_size.log`）
+
+**失败处理**：
+- 如果文件过大 → 加 `-b:v 3M` 参数限制视频码率
+- 如果不输出文件大小日志 → 加 `os.path.getsize()` 记录文件大小
+
+---
+
+#### 测试10：内存占用基准
+
+**测试步骤**：
+```bash
+# 运行渲染脚本，同时监控内存占用
+watch -n 1 "ps aux | grep render_video" &  # Linux/macOS
+# Windows 用 Task Manager 或 Process Monitor
+
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01_benchmark.mp4
+```
+
+**预期结果**：
+- [ ] 内存占用 < 2GB（取决于图片数量和分辨率）
+- [ ] 如果内存占用过高 → 分块处理图片（每次只加载一张图片到内存）
+- [ ] 输出内存占用日志（`output/memory_benchmark.log`）
+
+**失败处理**：
+- 如果内存占用过高 → 加 `Image.close()` 及时释放内存
+- 如果不输出内存占用日志 → 加 `psutil.Process().memory_info()` 记录内存占用
+
+---
+
+### CI/CD 集成测试（测试用时 10 分钟）
+
+#### 测试11：GitHub Actions 配置测试
+
+**测试步骤**：
+```bash
+# 1. 创建 GitHub Actions 配置文件
+mkdir -p .github/workflows/
+cat > .github/workflows/test.yml << 'EOF'
+name: Test AI Frontier Video Pipeline
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install Pillow requests
+      - name: Install FFmpeg
+        run: sudo apt-get install -y ffmpeg
+      - name: Run tests
+        run: bash test/test_all.sh
+EOF
+
+# 2. 推送到 GitHub
+git add .github/workflows/test.yml
+git commit -m "Add GitHub Actions CI"
+git push origin master
+
+# 3. 检查 GitHub Actions 运行状态
+# 访问 https://github.com/dcn-autotest-team/ai-frontier-video-pipeline/actions
+```
+
+**预期结果**：
+- [ ] GitHub Actions 自动运行测试
+- [ ] 所有测试通过（绿色勾）
+- [ ] 如果测试失败 → 发送邮件通知维护者
+
+**失败处理**：
+- 如果 GitHub Actions 运行失败 → 检查配置文件语法（`.github/workflows/test.yml`）
+- 如果测试脚本失败 → 修复测试脚本（`test/test_all.sh`）
+
+---
+
+## 高级用法
+
+### 自定义模板
+
+#### 修改品牌颜色
+
+**步骤**：
+```python
+# 1. 编辑 scripts/cover_template.py 和 scripts/slide_template.py
+# 2. 修改颜色常量
+
+# scripts/cover_template.py
+BG_COLOR_1 = (8, 12, 38)    # #080C26 → 改成你喜欢的颜色
+BG_COLOR_2 = (22, 8, 56)    # #160838 → 改成你喜欢的颜色
+NEON_BLUE = (0, 212, 255)   # #00D4FF → 改成你喜欢的颜色
+ELECTRIC_PURPLE = (139, 92, 246)  # #8B5CF6 → 改成你喜欢的颜色
+
+# scripts/slide_template.py（如果有类似常量）
+# 修改对应的颜色常量
+```
+
+**验证**：
+```bash
+# 重新生成封面和分镜图
+python scripts/cover_template.py --title "测试视频" --ep 01 --output-dir covers/
+python scripts/slide_template.py --config output/script.json --ep 01 --output-dir slides/
+
+# 检查输出图片的颜色是否符合预期
+display covers/cover_01_vertical.png  # Linux/macOS
+# Windows 用 照片 或 Paint 打开
+```
+
+---
+
+#### 修改字体
+
+**步骤**：
+```python
+# 1. 准备字体文件（.ttf 或 .otf）
+# 例如：NotoSansSC-Regular.ttf（ already included in the skill）
+
+# 2. 编辑 scripts/slide_template.py 和 scripts/render_video.py
+# 3. 修改字体路径
+
+# scripts/slide_template.py
+FONT_PATH = "assets/NotoSansSC-Regular.ttf"  # 改成你的字体文件路径
+
+# scripts/render_video.py（字幕字体）
+SUBTITLE_FONT = "assets/NotoSansSC-Regular.ttf"  # 改成你的字体文件路径
+```
+
+**验证**：
+```bash
+# 重新生成分镜图和视频
+python scripts/slide_template.py --config output/script.json --ep 01 --output-dir slides/
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --srt output/subtitle.srt --ep 01 --output output/ep01_custom_font.mp4
+
+# 检查输出图片和视频的字体是否符合预期
+display slides/slide_01_title.png  # Linux/macOS
+# Windows 用 照片 或 Paint 打开
+```
+
+---
+
+#### 修改布局
+
+**步骤**：
+```python
+# 1. 编辑 scripts/cover_template.py 和 scripts/slide_template.py
+# 2. 修改布局参数
+
+# scripts/cover_template.py
+TITLE_Y = H // 2 - 100  # 标题 Y 坐标 → 改成你喜欢的位
+LOGO_Y = H - 150         # Logo Y 坐标 → 改成你喜欢的位
+
+# scripts/slide_template.py
+CARD_X = 100  # 卡片 X 坐标 → 改成你喜欢的位
+CARD_Y = 200  # 卡片 Y 坐标 → 改成你喜欢的位
+CARD_WIDTH = W - 200  # 卡片宽度 → 改成你喜欢的宽度
+CARD_HEIGHT = 400  # 卡片高度 → 改成你喜欢的高度
+```
+
+**验证**：
+```bash
+# 重新生成封面和分镜图
+python scripts/cover_template.py --title "测试视频" --ep 01 --output-dir covers/
+python scripts/slide_template.py --config output/script.json --ep 01 --output-dir slides/
+
+# 检查输出图片的布局是否符合预期
+display covers/cover_01_vertical.png  # Linux/macOS
+# Windows 用 照片 或 Paint 打开
+```
+
+---
+
+### 批量渲染
+
+#### 方法1：for 循环（推荐）
+
+**步骤**：
+```bash
+# 1. 准备多个 script.json 文件（每个 EP 一个）
+# 例如：output/script_01.json, output/script_02.json, output/script_03.json
+
+# 2. 使用 for 循环批量渲染
+for ep in 01 02 03; do
+  echo "渲染第 $ep 期..."
+  
+  # 生成分镜图和封面
+  python scripts/slide_template.py --config output/script_$ep.json --ep $ep --output-dir slides/
+  python scripts/cover_template.py --title "标题$ep" --ep $ep --output-dir covers/
+  
+  # 渲染视频
+  python scripts/render_video.py \
+    --slides-dir slides/ \
+    --voice output/voice_$ep.mp3 \
+    --bgm output/bgm_$ep.mp3 \
+    --srt output/subtitle_$ep.srt \
+    --ep $ep \
+    --output output/ep$ep.mp4
+  
+  echo "第 $ep 期渲染完成！"
+done
+```
+
+**验证**：
+```bash
+# 检查输出文件
+ls -lh output/ep*.mp4
+ls -lh covers/cover_*_vertical.png
+ls -lh slides/slide_*_*.png
+```
+
+---
+
+#### 方法2：GNU Parallel（适合大量视频）
+
+**步骤**：
+```bash
+# 1. 安装 GNU Parallel
+# Linux: sudo apt-get install parallel
+# macOS: brew install parallel
+# Windows: 用 WSL 或 Cygwin
+
+# 2. 创建任务列表文件
+cat > output/tasks.txt << 'EOF'
+01
+02
+03
+EOF
+
+# 3. 使用 GNU Parallel 并行渲染
+parallel -j 4 " \
+  python scripts/slide_template.py --config output/script_{}.json --ep {} --output-dir slides/ && \
+  python scripts/cover_template.py --title '标题{}' --ep {} --output-dir covers/ && \
+  python scripts/render_video.py --slides-dir slides/ --voice output/voice_{}.mp3 --ep {} --output output/ep{}.mp4 \
+" ::: output/tasks.txt
+```
+
+**验证**：
+```bash
+# 检查输出文件
+ls -lh output/ep*.mp4
+ls -lh covers/cover_*_vertical.png
+ls -lh slides/slide_*_*.png
+```
+
+---
+
+### CI/CD 集成
+
+#### GitHub Actions 配置（完整版）
+
+**步骤**：
+```bash
+# 1. 创建 GitHub Actions 配置文件
+mkdir -p .github/workflows/
+cat > .github/workflows/release.yml << 'EOF'
+name: Release AI Frontier Video Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install Pillow requests
+      - name: Install FFmpeg
+        run: sudo apt-get install -y ffmpeg
+      - name: Run tests
+        run: bash test/test_all.sh
+      - name: Package skill
+        run: git archive --format=zip --output ../ai-frontier-video-pipeline-${{ github.ref_name }}.zip ${{ github.ref_name }}
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ../ai-frontier-video-pipeline-${{ github.ref_name }}.zip
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            ## 改进内容
+            - 自动生成 Release 描述
+            ## 安装方法
+            ```bash
+            # 方法1：从 GitHub 下载
+            curl -L https://github.com/dcn-autotest-team/ai-frontier-video-pipeline/releases/download/${{ github.ref_name }}/ai-frontier-video-pipeline-${{ github.ref_name }}.zip -o ai-frontier-video-pipeline.zip
+            
+            # 方法2：克隆仓库
+            git clone https://github.com/dcn-autotest-team/ai-frontier-video-pipeline.git ~/.workbuddy/skills/ai-frontier-video-pipeline
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+EOF
+
+# 2. 推送到 GitHub
+git add .github/workflows/release.yml
+git commit -m "Add GitHub Actions Release Workflow"
+git push origin master
+
+# 3. 创建新 tag 触发 Release
+git tag v1.0.6
+git push origin v1.0.6
+
+# 4. 检查 GitHub Actions 运行状态
+# 访问 https://github.com/dcn-autotest-team/ai-frontier-video-pipeline/actions
+```
+
+**预期结果**：
+- [ ] GitHub Actions 自动运行测试
+- [ ] 测试通过后自动打包 skill
+- [ ] 自动创建 GitHub Release 并上传 zip 文件
+- [ ] 输出友好的 Release 描述（包含安装方法）
+
+---
+
+## 故障排查
+
+### 问题1：FFmpeg 滤镜错误
+
+**症状**：渲染视频时 FFmpeg 报错 `Filter zoompan not found` 或 `Invalid filter`
+
+**诊断步骤**：
+```bash
+# 1. 检查 FFmpeg 版本（需要 7.x）
+ffmpeg -version
+
+# 2. 检查滤镜是否存在
+ffmpeg -filters | grep zoompan
+ffmpeg -filters | grep xfade
+ffmpeg -filters | grep subtitles
+
+# 3. 检查 FFmpeg 编译选项（是否包含 libx264、libfontconfig）
+ffmpeg -buildconf
+```
+
+**修复步骤**：
+```bash
+# 方法1：升级 FFmpeg 到 7.x
+# Linux: sudo apt-get install ffmpeg=7.1*
+# macOS: brew install ffmpeg
+# Windows: 从 https://ffmpeg.org/download.html 下载 7.x 版本
+
+# 方法2：安装缺少的滤镜
+# Linux: sudo apt-get install ffmpeg libavfilter-extra
+# macOS: brew reinstall ffmpeg --with-libass --with-fontconfig
+# Windows: 用完整版 FFmpeg（包含 fontconfig）
+
+# 方法3：脚本自动降级（如果滤镜不存在）
+# 编辑 scripts/render_video.py，加滤镜检测逻辑：
+# if "zoompan" not in ffmpeg_filters:
+#   use_simple_zoom()
+```
+
+**验证**：
+```bash
+# 重新运行渲染脚本
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01_fixed.mp4
+
+# 检查输出视频是否正常
+ffprobe output/ep01_fixed.mp4
+```
+
+---
+
+### 问题2：SenseAudio API 返回格式异常
+
+**症状**：调用 SenseAudio API 时返回 JSON 缺少必需字段（例如 `audio_url` 或 `task_id`）
+
+**诊断步骤**：
+```bash
+# 1. 检查 API 返回内容
+curl -X POST "https://api.senseaudio.com/v1/music/song/create" \
+  -H "Authorization: Bearer $SENSEAUDIO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"lyrics_id": "test", "custom_mode": false, "instrumental": true}' \
+  -v  # 显示详细日志
+
+# 2. 检查 JSON 格式
+cat output/song_task.json | jq '.'  # 应该用 jq 格式化
+
+# 3. 检查必需字段是否存在
+cat output/song_task.json | jq '.task_id'  # 应该返回任务 ID
+```
+
+**修复步骤**：
+```python
+# 编辑 scripts/ CALLING SenseAudio API 的 Python 代码
+# 加 JSON 格式检查和必需字段检查
+
+import requests
+import json
+
+response = requests.post(url, headers=headers, json=data)
+if response.status_code != 200:
+    print(f"API 错误: {response.status_code}")
+    print(response.text)
+    exit(1)
+
+result = response.json()
+if "task_id" not in result:
+    print(f"API 返回格式异常: {result}")
+    exit(1)
+
+task_id = result["task_id"]
+```
+
+**验证**：
+```bash
+# 重新调用 API
+curl -X POST "https://api.senseaudio.com/v1/music/song/create" \
+  -H "Authorization: Bearer $SENSEAUDIO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"lyrics_id": "test", "custom_mode": false, "instrumental": true}'
+
+# 检查返回的 JSON 是否包含 task_id
+cat output/song_task.json | jq '.task_id'
+```
+
+---
+
+### 问题3：文件权限错误
+
+**症状**：运行脚本时报错 `Permission denied` 或 `无法写入文件`
+
+**诊断步骤**：
+```bash
+# 1. 检查文件权限
+ls -lh output/          # Linux/macOS
+icacls output\           # Windows
+
+# 2. 检查磁盘空间
+df -h output/           # Linux/macOS
+dir output\              # Windows
+
+# 3. 检查文件是否被其他进程占用
+lsof output/ep01.mp4    # Linux/macOS
+handle output\ep01.mp4  # Windows（需要 Sysinternals Suite）
+```
+
+**修复步骤**：
+```bash
+# 方法1：修改文件权限
+chmod 755 output/          # Linux/macOS
+icacls output\ /grant Everyone:F  # Windows（谨慎使用）
+
+# 方法2：清理磁盘空间
+rm -f output/dummy.bin    # Linux/macOS
+del output\dummy.bin       # Windows
+
+# 方法3：关闭占用文件的进程
+kill $(lsof -t output/ep01.mp4)  # Linux/macOS
+handle -c output\ep01.mp4         # Windows（需要 Sysinternals Suite）
+```
+
+**验证**：
+```bash
+# 重新运行渲染脚本
+python scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01_fixed.mp4
+
+# 检查输出文件是否正常生成
+ls -lh output/ep01_fixed.mp4
+```
+
+---
+
+### 问题4：视频无法播放（编码错误）
+
+**症状**：渲染完成的视频无法用 VLC 或 Potplayer 播放
+
+**诊断步骤**：
+```bash
+# 1. 检查视频编码
+ffprobe output/ep01.mp4
+
+# 2. 检查视频是否完整（没有截断）
+ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/ep01.mp4
+
+# 3. 检查 FFmpeg 渲染日志
+tail -50 output/render.log
+```
+
+**修复步骤**：
+```bash
+# 方法1：重新渲染视频（用更兼容的编码）
+python scripts/render_video.py \
+  --slides-dir slides/ \
+  --voice output/voice.mp3 \
+  --ep 01 \
+  --output output/ep01_fixed.mp4 \
+  --video-codec libx264 \
+  --audio-codec aac \
+  --pix-fmt yuv420p
+
+# 方法2：用 FFmpeg 转码现有视频
+ffmpeg -i output/ep01.mp4 -c:v libx264 -c:a aac -pix-fmt yuv420p output/ep01_fixed.mp4
+
+# 方法3：脚本自动降级编码（如果某些滤镜不支持）
+# 编辑 scripts/render_video.py，加编码检测逻辑：
+# if "libx264" not in ffmpeg_codecs:
+#   use_mpeg4_codec()
+```
+
+**验证**：
+```bash
+# 检查修复后的视频
+ffprobe output/ep01_fixed.mp4
+
+# 用 VLC 或 Potplayer 打开视频
+vlc output/ep01_fixed.mp4  # Linux/macOS
+# Windows 用 VLC 或 Potplayer 打开
+```
+
+---
+
+### 问题5：字幕显示乱码或位置不对
+
+**症状**：视频中的字幕显示乱码（非 UTF-8）或位置不对（太靠上/太靠下）
+
+**诊断步骤**：
+```bash
+# 1. 检查字幕文件编码
+file output/subtitle.srt
+chardet output/subtitle.srt  # 需要用 pip install chardet 安装
+
+# 2. 检查字幕文件内容
+cat output/subtitle.srt | head -20
+
+# 3. 检查 FFmpeg 字幕滤镜参数
+grep "subtitles" output/render.log
+```
+
+**修复步骤**：
+```bash
+# 方法1：转换字幕文件编码到 UTF-8
+iconv -f GBK -t UTF-8 output/subtitle_gbk.srt > output/subtitle_utf8.srt
+
+# 方法2：调整字幕位置（MarginV）
+# 编辑 scripts/render_video.py，修改字幕滤镜参数：
+# subtitles=output/subtitle.srt:force_style='FontSize=22,MarginV=40,Outline=2,BackColor=&H80000000'
+# MarginV=40 → 改成你喜欢的值（例如 60 或 80）
+
+# 方法3：换字体（如果当前字体不支持中文）
+# 编辑 scripts/render_video.py，修改字幕滤镜参数：
+# subtitles=output/subtitle.srt:force_style='FontName=NotoSansSC,FontSize=22,MarginV=40'
+```
+
+**验证**：
+```bash
+# 重新渲染视频（带字幕）
+python scripts/render_video.py \
+  --slides-dir slides/ \
+  --voice output/voice.mp3 \
+  --srt output/subtitle_utf8.srt \
+  --ep 01 \
+  --output output/ep01_fixed_subs.mp4
+
+# 检查输出视频的字幕是否正常
+vlc output/ep01_fixed_subs.mp4  # Linux/macOS
+# Windows 用 VLC 或 Potplayer 打开
+```
+
+---
+
 ## 常见问题 FAQ
 
 ### Q1: FFmpeg 找不到怎么办？
