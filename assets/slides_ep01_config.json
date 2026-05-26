@@ -1,0 +1,46 @@
+{
+  "slides": [
+    {
+      "type": "title",
+      "title": "Cerebras推理速度革命",
+      "subtitle": "比GPU快15-20倍，AI推理新纪元"
+    },
+    {
+      "type": "data",
+      "title": "Cerebras 核心数据",
+      "data_items": [
+        {"value": "15-20x", "label": "推理速度超越GPU"},
+        {"value": "$200亿+", "label": "OpenAI推理大单"},
+        {"value": "AWS", "label": "云服务合作伙伴"},
+        {"value": "0", "label": "慢推理市场空间"}
+      ]
+    },
+    {
+      "type": "quote",
+      "quote": "慢推理市场为零，所有人都想要更快的推理",
+      "author": "Andrew Feldman, Cerebras CEO"
+    },
+    {
+      "type": "point",
+      "title": "AI Coding 新现实",
+      "points": [
+        "月均开销2.5-3万美元",
+        "Multi-Agent工作流效率提升100倍",
+        "推理成本决定AI应用天花板",
+        "速度即竞争力，延迟即成本"
+      ]
+    },
+    {
+      "type": "data",
+      "title": "Cerebras vs GPU 推理对比",
+      "data_items": [
+        {"value": "15-20x", "label": "速度优势"},
+        {"value": "1/10", "label": "延迟降低"},
+        {"value": "100x", "label": "Multi-Agent效率"}
+      ]
+    },
+    {
+      "type": "outro"
+    }
+  ]
+}
