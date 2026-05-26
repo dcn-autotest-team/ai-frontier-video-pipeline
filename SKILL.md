@@ -169,5 +169,5 @@ output/
 - **TTS voice_id**：`male_0028_a`
 - **字幕样式**：字号22，MarginV 40，描边2，底色 `$H80`
 - **Ken Burns**：图片预放大1.5x（1620×2880）留缩放空间
-- **FFmpeg 路径**：`C:\Users\yanwh\.workbuddy\binaries\python\envs\default\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg-win-x86_64-v7.1.exe`
-- **Python 路径**：`C:\Users\yanwh\.workbuddy\binaries\python\envs\default\Scripts\python.exe`
+- **FFmpeg**：使用系统 PATH 中的 ffmpeg，或通过 `--ffmpeg` 参数指定
+- **Python**：使用系统 PATH 中的 python，或通过 `--python` 参数指定

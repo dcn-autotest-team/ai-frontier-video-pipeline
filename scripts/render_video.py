@@ -12,7 +12,8 @@ import subprocess, re, shutil, math, argparse, sys
 from pathlib import Path
 
 # ─── 固定配置 ─────────────────────────────────────────
-FFMPEG = r"C:\Users\yanwh\.workbuddy\binaries\python\envs\default\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg-win-x86_64-v7.1.exe"
+import shutil
+FFMPEG = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe") or r"ffmpeg.exe"
 W, H = 1080, 1920
 FPS = 30
 XFADE_DUR = 0.7
