@@ -21,18 +21,18 @@
 # 下载最新版本
 curl -L https://github.com/dcn-autotest-team/ai-frontier-video-pipeline/releases/download/v1.0.6/ai-frontier-video-pipeline-v1.0.6.zip -o ai-frontier-video-pipeline.zip
 
-# 解压到 WorkBuddy skills 目录
-unzip ai-frontier-video-pipeline.zip -d ~/.workbuddy/skills/ai-frontier-video-pipeline/
+# 解压到 skills 目录（请根据你的环境调整路径）
+unzip ai-frontier-video-pipeline.zip -d ai-frontier-video-pipeline/
 ```
 
 ### 方法2：从源码克隆
 
 ```bash
-# 克隆仓库到 WorkBuddy skills 目录
-git clone https://github.com/dcn-autotest-team/ai-frontier-video-pipeline.git ~/.workbuddy/skills/ai-frontier-video-pipeline
+# 克隆仓库到 skills 目录（请根据你的环境调整路径）
+git clone https://github.com/dcn-autotest-team/ai-frontier-video-pipeline.git ai-frontier-video-pipeline
 
 # 切换到最新版本 tag
-cd ~/.workbuddy/skills/ai-frontier-video-pipeline
+cd ai-frontier-video-pipeline
 git checkout v1.0.6
 ```
 
@@ -42,8 +42,8 @@ git checkout v1.0.6
 
 ```bash
 # 安装 follow-builders 技能（用于选题）
-git clone https://github.com/zarazhangrui/follow-builders.git ~/.workbuddy/skills/follow-builders
-cd ~/.workbuddy/skills/follow-builders && npm install
+git clone https://github.com/zarazhangrui/follow-builders.git follow-builders
+cd follow-builders && npm install
 
 # 确认 FFmpeg 已安装（需要 7.x 版本）
 ffmpeg -version
@@ -56,7 +56,7 @@ pip install Pillow requests
 
 ```bash
 # 1. 选题（Phase 0）
-python ~/.workbuddy/skills/follow-builders/scripts/run.py
+python ../follow-builders/scripts/run.py
 # 输出：output/topic.md
 
 # 2. 信息采集（Phase 1）
@@ -66,12 +66,12 @@ python ~/.workbuddy/skills/follow-builders/scripts/run.py
 # 手动：撰写脚本，生成 output/script.json
 
 # 4. 素材生成（Phase 3）
-python ~/.workbuddy/skills/ai-frontier-video-pipeline/scripts/slide_template.py --config output/script.json --ep 01 --output-dir slides/
-python ~/.workbuddy/skills/ai-frontier-video-pipeline/scripts/cover_template.py --title "视频标题" --ep 01 --output-dir covers/
+python scripts/slide_template.py --config output/script.json --ep 01 --output-dir slides/
+python scripts/cover_template.py --title "视频标题" --ep 01 --output-dir covers/
 # 输出：slides/slide_01_*.png + covers/cover_01_*.png
 
 # 5. 视频渲染（Phase 4）
-python ~/.workbuddy/skills/ai-frontier-video-pipeline/scripts/render_video.py \
+python scripts/render_video.py \
   --slides-dir slides/ \
   --voice output/voice.mp3 \
   --bgm output/bgm.mp3 \
@@ -162,6 +162,55 @@ cat SKILL.md | grep -A 50 "## 测试 Checklist"
 - 问题4：视频无法播放（编码错误）
 - 问题5：字幕显示乱码或位置不对
 
+## 🤖 多平台支持
+
+### WorkBuddy
+
+```bash
+# 安装 skill（请根据你的环境调整 skills 目录）
+unzip ai-frontier-video-pipeline.zip -d ai-frontier-video-pipeline/
+
+# 使用 skill
+# 在 WorkBuddy 对话中直接说："制作一期AI短视频"
+```
+
+### Claude Code
+
+```bash
+# 安装 skill（假设 skills 目录为 ~/.claude/skills/）
+unzip ai-frontier-video-pipeline.zip -d ~/.claude/skills/ai-frontier-video-pipeline/
+
+# 使用 skill
+# 在 Claude Code 对话中直接说："制作一期AI短视频"
+# 或者手动运行脚本：
+python ~/.claude/skills/ai-frontier-video-pipeline/scripts/slide_template.py --config output/script.json --ep 01 --output-dir slides/
+```
+
+### OpenClaw
+
+```bash
+# 安装 skill（假设 skills 目录为 ~/.openclaw/skills/）
+unzip ai-frontier-video-pipeline.zip -d ~/.openclaw/skills/ai-frontier-video-pipeline/
+
+# 使用 skill
+# 在 OpenClaw 对话中直接说："制作一期AI短视频"
+# 或者手动运行脚本：
+python ~/.openclaw/skills/ai-frontier-video-pipeline/scripts/render_video.py --slides-dir slides/ --voice output/voice.mp3 --ep 01 --output output/ep01.mp4
+```
+
+### Codex
+
+```bash
+# 安装 skill（假设 skills 目录为 ~/.codex/skills/）
+unzip ai-frontier-video-pipeline.zip -d ~/.codex/skills/ai-frontier-video-pipeline/
+
+# 使用 skill
+# 在 Codex 对话中直接说："制作一期AI短视频"
+# 或者手动运行脚本：
+cd ~/.codex/skills/ai-frontier-video-pipeline/
+python scripts/cover_template.py --title "视频标题" --ep 01 --output-dir covers/
+```
+
 ## 📝 更新日志
 
 ### v1.0.6 (2026-05-26)
@@ -185,6 +234,7 @@ cat SKILL.md | grep -A 50 "## 测试 Checklist"
 - ✅ 改进边界条件覆盖（加用户中断恢复、分镜图片生成失败fallback）
 - ✅ 改进工作流清晰度（Phase 4加前置检查、进度检查、验证输出文件）
 - ✅ 改进指令具体性（加SenseAudio API完整curl示例和Python示例代码）
+- ✅ 改进整体架构（加"快速开始"章节）
 - ✅ **评估得分：82/100**
 
 ### v1.0.3 (2026-05-25)
