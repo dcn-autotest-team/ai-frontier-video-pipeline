@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "prompt": "帮我制作一期关于 GPT-5 的 AI 前沿短视频，60秒",
+    "expected": "触发完整工作流，输出分镜图+视频"
+  },
+  {
+    "id": 2,
+    "prompt": "生成 AI前沿 风格封面，标题：大模型价格战",
+    "expected": "调用 cover_template.py 生成竖屏+横屏封面"
+  },
+  {
+    "id": 3,
+    "prompt": "渲染视频，分镜在 slides/ 目录，配音 voice.mp3，字幕 sub.srt",
+    "expected": "调用 render_video.py 并给出完整命令"
+  }
+]

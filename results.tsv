@@ -1,0 +1,3 @@
+timestamp	commit	skill	old_score	new_score	status	dimension	note	eval_mode
+2026-05-26T10:11	baseline	ai-frontier-video-pipeline	-	66	baseline	-	初始评估	dry_run
+2026-05-26T10:15	b7d4ddb	ai-frontier-video-pipeline	66	74	keep	边界条件覆盖	补充网络超时/API限流/文件格式错误/磁盘空间/并发冲突	dry_run
